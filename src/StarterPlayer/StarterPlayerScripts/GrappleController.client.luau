@@ -22,6 +22,10 @@ local ropeAttachment0 = nil
 local ropeAttachment1 = nil
 local nearestAnchor = nil
 
+local raycastParams = RaycastParams.new()
+raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+raycastParams.IgnoreWater = true
+
 local function getClosestGrapplePoint()
 	if not rootPart then return nil end
 	local anchors = CollectionService:GetTagged("GrappleAnchor")
@@ -52,10 +56,21 @@ local function startGrapple()
 	local rel = playerPos - anchorPos
 	
 	ropeLength = math.clamp(math.sqrt(rel.X * rel.X + rel.Y * rel.Y), 5, PhysicsConfig.MAX_GRAPPLE_DISTANCE or 95)
-	swingAngle = math.atan2(rel.X, -rel.Y)
 	
 	local incomingVel = rootPart.AssemblyLinearVelocity
+	local attachBoost = PhysicsConfig.HOOK_ATTACH_BOOST or 38
+	
+	swingAngle = math.atan2(rel.X, -rel.Y)
 	local tangentSpeed = incomingVel.X * math.cos(swingAngle) + incomingVel.Y * math.sin(swingAngle)
+	
+	if tangentSpeed >= 0 then
+		tangentSpeed = math.max(tangentSpeed + attachBoost * 0.6, attachBoost)
+	else
+		if math.abs(tangentSpeed) < attachBoost then
+			tangentSpeed = attachBoost
+		end
+	end
+	
 	angularVelocity = tangentSpeed / ropeLength
 	
 	if humanoid then
@@ -132,6 +147,12 @@ local function onCharacterAdded(newChar)
 	
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
+	
+	local filterList = {character}
+	for _, anchor in ipairs(CollectionService:GetTagged("GrappleAnchor")) do
+		table.insert(filterList, anchor)
+	end
+	raycastParams.FilterDescendantsInstances = filterList
 end
 
 player.CharacterAdded:Connect(onCharacterAdded)
@@ -155,13 +176,44 @@ RunService.Heartbeat:Connect(function(dt)
 		local damping = PhysicsConfig.SWING_DAMPING or 0.05
 		alpha = alpha - (damping * angularVelocity)
 		
+		if math.abs(angularVelocity) > 2.2 then
+			local pumpDir = math.sign(angularVelocity)
+			local pumpRate = PhysicsConfig.SWING_PUMP_RATE or 1.2
+			alpha = alpha + (pumpDir * pumpRate)
+		end
+		
 		angularVelocity = angularVelocity + alpha * dt
-		swingAngle = swingAngle + angularVelocity * dt
+		local nextAngle = swingAngle + angularVelocity * dt
 		
 		local anchorPos = currentAnchor.Position
-		local proposedX = anchorPos.X + L * math.sin(swingAngle)
-		local proposedY = anchorPos.Y - L * math.cos(swingAngle)
-		local finalPos = Vector3.new(proposedX, proposedY, PhysicsConfig.Z_LOCK_PLANE)
+		local proposedX = anchorPos.X + L * math.sin(nextAngle)
+		local proposedY = anchorPos.Y - L * math.cos(nextAngle)
+		
+		local currentPos = rootPart.Position
+		local targetPos = Vector3.new(proposedX, proposedY, PhysicsConfig.Z_LOCK_PLANE)
+		local moveVec = targetPos - currentPos
+		local moveDist = moveVec.Magnitude
+		
+		local characterRadius = 1.2
+		local hitResult = nil
+		if moveDist > 0.001 then
+			hitResult = workspace:Spherecast(currentPos, characterRadius, moveVec.Unit * (moveDist + characterRadius), raycastParams)
+		end
+		
+		local finalPos = targetPos
+		if hitResult and hitResult.Instance and hitResult.Instance.CanCollide then
+			local hitNormal = hitResult.Normal
+			finalPos = hitResult.Position + (hitNormal * characterRadius)
+			finalPos = Vector3.new(finalPos.X, finalPos.Y, PhysicsConfig.Z_LOCK_PLANE)
+			
+			angularVelocity = -angularVelocity * 0.75
+			
+			local contactRel = finalPos - anchorPos
+			ropeLength = math.clamp(contactRel.Magnitude, 5, PhysicsConfig.MAX_GRAPPLE_DISTANCE or 95)
+			swingAngle = math.atan2(contactRel.X, -contactRel.Y)
+		else
+			swingAngle = nextAngle
+		end
 		
 		local tangentialSpeed = angularVelocity * ropeLength
 		local vx = tangentialSpeed * math.cos(swingAngle)
