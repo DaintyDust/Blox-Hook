@@ -1,0 +1,9 @@
+local PhysicsConfig = {
+	Z_LOCK_PLANE = 0,
+	GRAVITY = 130,
+	SWING_DAMPING = 0.05,
+	MAX_RELEASE_SPEED = 220,
+	MAX_GRAPPLE_DISTANCE = 95,
+	ROPE_THICKNESS = 0.22,
+}
+return PhysicsConfig
