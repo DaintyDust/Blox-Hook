@@ -1,8 +1,10 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Debris = game:GetService("Debris")
 
 local player = Players.LocalPlayer
 local PhysicsConfig = require(ReplicatedStorage:WaitForChild("PhysicsConfig"))
@@ -22,9 +24,113 @@ local ropeAttachment0 = nil
 local ropeAttachment1 = nil
 local nearestAnchor = nil
 
+-- 3D Dashed Selection Ring
+local selectionRingModel = nil
+local selectionRingRoot = nil
+local ringDashParts = {}
+local ringRotationAngle = 0
+
 local raycastParams = RaycastParams.new()
 raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 raycastParams.IgnoreWater = true
+
+local function create3DSelectionRing()
+	if selectionRingModel then selectionRingModel:Destroy() end
+	
+	local model = Instance.new("Model")
+	model.Name = "StickmanSelectionRing"
+	
+	local root = Instance.new("Part")
+	root.Name = "RingRoot"
+	root.Size = Vector3.new(0.2, 0.2, 0.2)
+	root.Transparency = 1
+	root.CanCollide = false
+	root.CanTouch = false
+	root.CanQuery = false
+	root.Anchored = true
+	root.Parent = model
+	model.PrimaryPart = root
+	
+	local numSegments = 16
+	local radius = 3.2
+	local segLength = 0.95
+	local thickness = 0.22
+	ringDashParts = {}
+	
+	for i = 1, numSegments do
+		local angle = (i - 1) * (2 * math.pi / numSegments)
+		local seg = Instance.new("Part")
+		seg.Name = "Dash_" .. i
+		seg.Material = Enum.Material.SmoothPlastic
+		seg.Color = Color3.fromRGB(255, 255, 255)
+		seg.Size = Vector3.new(segLength, thickness, thickness)
+		seg.Anchored = false
+		seg.CanCollide = false
+		seg.CanTouch = false
+		seg.CanQuery = false
+		seg.CastShadow = false
+		seg.Transparency = 1
+		
+		local x = radius * math.cos(angle)
+		local y = radius * math.sin(angle)
+		seg.CFrame = CFrame.new(x, y, 0) * CFrame.Angles(0, 0, angle + math.pi/2)
+		
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = root
+		weld.Part1 = seg
+		weld.Parent = seg
+		
+		seg.Parent = model
+		table.insert(ringDashParts, seg)
+	end
+	
+	model.Parent = workspace
+	selectionRingModel = model
+	selectionRingRoot = root
+end
+
+local function setSelectionRingVisible(visible)
+	local targetTrans = visible and 0.05 or 1
+	for _, part in ipairs(ringDashParts) do
+		part.Transparency = targetTrans
+	end
+end
+
+local function setAnchorActive(anchor, isActive)
+	if not anchor then return end
+	local dot = anchor:FindFirstChild("CenterDot") or (anchor.Name == "CenterDot" and anchor)
+	local targetColor = isActive and (PhysicsConfig.COLOR_ANCHOR_ACTIVE or Color3.fromRGB(235, 45, 65)) 
+								 or (PhysicsConfig.COLOR_ANCHOR_DEFAULT or Color3.fromRGB(90, 180, 255))
+	
+	local anchorOrigSize = anchor:GetAttribute("OriginalSize") or Vector3.new(0.8, 3.4, 3.4)
+	local targetAnchorSize = isActive and (anchorOrigSize * 1.2) or anchorOrigSize
+	
+	TweenService:Create(anchor, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = targetAnchorSize
+	}):Play()
+	
+	if dot and dot:IsA("BasePart") then
+		local dotOrigSize = dot:GetAttribute("OriginalSize") or Vector3.new(2.0, 1.4, 1.4)
+		local targetDotSize = isActive and (dotOrigSize * 1.3) or dotOrigSize
+		
+		TweenService:Create(dot, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Color = targetColor,
+			Size = targetDotSize
+		}):Play()
+	end
+end
+
+local function resetAllAnchorsToDefault()
+	for _, anchor in ipairs(CollectionService:GetTagged("GrappleAnchor")) do
+		setAnchorActive(anchor, false)
+	end
+	for _, obj in ipairs(workspace:GetDescendants()) do
+		if obj.Name == "CenterDot" and obj:IsA("BasePart") then
+			obj.Color = PhysicsConfig.COLOR_ANCHOR_DEFAULT or Color3.fromRGB(90, 180, 255)
+			obj.Size = obj:GetAttribute("OriginalSize") or Vector3.new(2.0, 1.4, 1.4)
+		end
+	end
+end
 
 local function getClosestGrapplePoint()
 	if not rootPart then return nil end
@@ -50,6 +156,9 @@ local function startGrapple()
 	if isGrappling or not rootPart or not nearestAnchor then return end
 	isGrappling = true
 	currentAnchor = nearestAnchor
+	
+	setSelectionRingVisible(false)
+	setAnchorActive(currentAnchor, true)
 	
 	local anchorPos = currentAnchor.Position
 	local playerPos = rootPart.Position
@@ -94,11 +203,23 @@ local function startGrapple()
 	activeBeam.LightEmission = 0.5
 	activeBeam.LightInfluence = 0
 	activeBeam.Parent = rootPart
+	
+	local sound = Instance.new("Sound")
+	sound.SoundId = "rbxasset://sounds/action_jump.mp3"
+	sound.Volume = 0.65
+	sound.PlaybackSpeed = 1.45
+	sound.Parent = rootPart
+	sound:Play()
+	Debris:AddItem(sound, 1)
 end
 
 local function releaseGrapple()
 	if not isGrappling then return end
 	isGrappling = false
+	
+	if currentAnchor and currentAnchor:IsA("BasePart") then
+		setAnchorActive(currentAnchor, false)
+	end
 	
 	if activeBeam then activeBeam:Destroy() activeBeam = nil end
 	
@@ -158,6 +279,9 @@ end
 player.CharacterAdded:Connect(onCharacterAdded)
 if player.Character then onCharacterAdded(player.Character) end
 
+resetAllAnchorsToDefault()
+create3DSelectionRing()
+
 RunService.Heartbeat:Connect(function(dt)
 	if not rootPart then return end
 	
@@ -165,8 +289,6 @@ RunService.Heartbeat:Connect(function(dt)
 		rootPart.CFrame = CFrame.new(rootPart.Position.X, rootPart.Position.Y, PhysicsConfig.Z_LOCK_PLANE) * (rootPart.CFrame - rootPart.Position)
 		rootPart.AssemblyLinearVelocity = Vector3.new(rootPart.AssemblyLinearVelocity.X, rootPart.AssemblyLinearVelocity.Y, 0)
 	end
-	
-	nearestAnchor = getClosestGrapplePoint()
 	
 	if isGrappling and currentAnchor and currentAnchor:IsA("BasePart") then
 		local g = PhysicsConfig.GRAVITY or 130
@@ -224,5 +346,19 @@ RunService.Heartbeat:Connect(function(dt)
 		local facingY = (vx < -1) and math.rad(-90) or math.rad(90)
 		rootPart.CFrame = CFrame.new(finalPos) * CFrame.Angles(0, 0, ropeTilt) * CFrame.Angles(0, facingY, 0)
 		rootPart.AssemblyLinearVelocity = Vector3.new(vx, vy, 0)
+	end
+	
+	-- Update 3D Selection Ring
+	nearestAnchor = getClosestGrapplePoint()
+	if nearestAnchor and nearestAnchor:IsA("BasePart") and selectionRingRoot then
+		if isGrappling and nearestAnchor == currentAnchor then
+			setSelectionRingVisible(false)
+		else
+			ringRotationAngle = (ringRotationAngle + dt * 1.8) % (2 * math.pi)
+			selectionRingRoot.CFrame = CFrame.new(nearestAnchor.Position.X, nearestAnchor.Position.Y, 0.45) * CFrame.Angles(0, 0, ringRotationAngle)
+			setSelectionRingVisible(true)
+		end
+	else
+		setSelectionRingVisible(false)
 	end
 end)

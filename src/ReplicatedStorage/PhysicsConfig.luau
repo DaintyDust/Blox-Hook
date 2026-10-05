@@ -12,5 +12,7 @@ local PhysicsConfig = {
 	CAMERA_LOOKAHEAD = 0.18,
 	CAMERA_SMOOTH_SPEED = 16,
 	DEFAULT_FOV = 70,
+	COLOR_ANCHOR_DEFAULT = Color3.fromRGB(90, 180, 255),
+	COLOR_ANCHOR_ACTIVE = Color3.fromRGB(235, 45, 65),
 }
 return PhysicsConfig
