@@ -15,6 +15,7 @@ local character = nil
 local rootPart = nil
 local humanoid = nil
 
+local isMenuMode = true
 local isFinished = false
 local isGrappling = false
 local currentAnchor = nil
@@ -33,15 +34,37 @@ local selectionRingRoot = nil
 local ringDashParts = {}
 local ringRotationAngle = 0
 
+local menuTime = 0
+local menuBeam = nil
+local menuAttach1 = nil
+
 local raycastParams = RaycastParams.new()
 raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 raycastParams.IgnoreWater = true
 
 local LevelFinishedEvent = Events:WaitForChild("LevelFinishedEvent")
 
+local function updateRaycastFilter()
+	local filterList = {}
+	if character then
+		table.insert(filterList, character)
+	end
+	for _, anchor in ipairs(CollectionService:GetTagged("GrappleAnchor")) do
+		if anchor:IsDescendantOf(workspace) then
+			table.insert(filterList, anchor)
+		end
+	end
+	local map = workspace:FindFirstChild("Map")
+	local lines = map and map:FindFirstChild("Lines", true)
+	if lines then
+		table.insert(filterList, lines)
+	end
+	raycastParams.FilterDescendantsInstances = filterList
+end
+
 local function getLevelLines()
 	local map = workspace:FindFirstChild("Map")
-	local lines = map and map:FindFirstChild("Lines")
+	local lines = map and map:FindFirstChild("Lines", true)
 	local deadBelowY = -88
 	local deadAboveY = 252
 	local finishX = 351.25
@@ -156,8 +179,57 @@ local function resetAllAnchorsToDefault()
 	end
 end
 
+local function getMainScreenAnchor()
+	local mainScreen = workspace:FindFirstChild("MainScreen") or workspace:FindFirstChild("Mainscreen")
+	if mainScreen then
+		local anchor = mainScreen:FindFirstChild("Anchor_Norm") or mainScreen:FindFirstChild("Anchor") or mainScreen:FindFirstChildOfClass("BasePart")
+		if anchor and anchor:IsA("BasePart") then
+			return anchor
+		end
+	end
+	return nil
+end
+
+local function setupMenuVisuals()
+	local anchor = getMainScreenAnchor()
+	if not anchor or not rootPart then return end
+	
+	if menuBeam then menuBeam:Destroy() menuBeam = nil end
+	if menuAttach1 then menuAttach1:Destroy() menuAttach1 = nil end
+	
+	setAnchorActive(anchor, true)
+	setSelectionRingVisible(false)
+	
+	ropeAttachment0 = rootPart:FindFirstChild("PlayerRopeAttachment") or Instance.new("Attachment", rootPart)
+	ropeAttachment0.Name = "PlayerRopeAttachment"
+	
+	menuAttach1 = anchor:FindFirstChild("AnchorAttachment")
+	if not menuAttach1 then
+		menuAttach1 = Instance.new("Attachment")
+		menuAttach1.Name = "AnchorAttachment"
+		menuAttach1.Parent = anchor
+	end
+	
+	local startPos = Vector3.new(anchor.Position.X, anchor.Position.Y - 12, anchor.Position.Z)
+	rootPart.CFrame = CFrame.new(startPos) * CFrame.Angles(0, math.rad(180), 0)
+	rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+	rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+	
+	menuBeam = Instance.new("Beam")
+	menuBeam.Name = "MenuBeam"
+	menuBeam.Attachment0 = ropeAttachment0
+	menuBeam.Attachment1 = menuAttach1
+	menuBeam.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255))
+	menuBeam.Width0 = PhysicsConfig.ROPE_THICKNESS or 0.22
+	menuBeam.Width1 = PhysicsConfig.ROPE_THICKNESS or 0.22
+	menuBeam.FaceCamera = true
+	menuBeam.LightEmission = 0.5
+	menuBeam.LightInfluence = 0
+	menuBeam.Parent = rootPart
+end
+
 local function respawnAtStart()
-	if not rootPart then return end
+	if isMenuMode or not rootPart then return end
 	if isGrappling then
 		if currentAnchor then
 			setAnchorActive(currentAnchor, false)
@@ -181,6 +253,39 @@ local function respawnAtStart()
 	rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
 end
 
+local GameStartedEvent = Events:WaitForChild("GameStartedEvent")
+GameStartedEvent.Event:Connect(function()
+	isMenuMode = false
+	isFinished = false
+	
+	local menuAnchor = getMainScreenAnchor()
+	if menuAnchor then
+		setAnchorActive(menuAnchor, false)
+	end
+	
+	if menuBeam then menuBeam:Destroy() menuBeam = nil end
+	
+	if rootPart then
+		local spawnLoc = workspace:FindFirstChildOfClass("SpawnLocation")
+		local spawnX = spawnLoc and spawnLoc.Position.X or -16
+		local spawnY = spawnLoc and spawnLoc.Position.Y or 2
+		local targetPos = Vector3.new(spawnX, spawnY + 14, PhysicsConfig.Z_LOCK_PLANE or 0)
+		
+		angularVelocity = 0
+		swingAngle = 0
+		rootPart.CFrame = CFrame.new(targetPos)
+		rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+		rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+	end
+end)
+
+local ReturnToMenuEvent = Events:WaitForChild("ReturnToMenuEvent")
+ReturnToMenuEvent.Event:Connect(function()
+	isMenuMode = true
+	isFinished = false
+	setupMenuVisuals()
+end)
+
 local ForceRespawnEvent = Events:WaitForChild("ForceRespawnEvent", 10)
 if ForceRespawnEvent and ForceRespawnEvent:IsA("RemoteEvent") then
 	ForceRespawnEvent.OnClientEvent:Connect(function()
@@ -189,7 +294,7 @@ if ForceRespawnEvent and ForceRespawnEvent:IsA("RemoteEvent") then
 end
 
 local function triggerFinishSequence()
-	if isFinished then return end
+	if isFinished or isMenuMode then return end
 	isFinished = true
 	
 	setSelectionRingVisible(false)
@@ -216,9 +321,9 @@ local function triggerFinishSequence()
 	end
 	
 	task.spawn(function()
-		while isFinished do
+		while isFinished and not isMenuMode do
 			task.wait(0.03)
-			if rootPart and isFinished then
+			if rootPart and isFinished and not isMenuMode then
 				local v = rootPart.AssemblyLinearVelocity
 				rootPart.AssemblyLinearVelocity = Vector3.new(v.X * 0.94, math.max(v.Y * 0.90, -10), 0)
 			end
@@ -227,7 +332,7 @@ local function triggerFinishSequence()
 end
 
 local function getClosestGrapplePoint()
-	if not rootPart or isFinished then return nil end
+	if not rootPart or isMenuMode or isFinished then return nil end
 	local anchors = CollectionService:GetTagged("GrappleAnchor")
 	local closestAnchor = nil
 	local minDistance = PhysicsConfig.MAX_GRAPPLE_DISTANCE or 95
@@ -237,10 +342,13 @@ local function getClosestGrapplePoint()
 	for _, anchor in ipairs(anchors) do
 		if not anchor:IsDescendantOf(game.Workspace) then continue end
 		if anchor:IsA("BasePart") then
-			local dist = (anchor.Position - playerPos).Magnitude
-			if dist < minDistance then
-				minDistance = dist
-				closestAnchor = anchor
+			local mainScreen = workspace:FindFirstChild("MainScreen") or workspace:FindFirstChild("Mainscreen")
+			if not mainScreen or not anchor:IsDescendantOf(mainScreen) then
+				local dist = (anchor.Position - playerPos).Magnitude
+				if dist < minDistance then
+					minDistance = dist
+					closestAnchor = anchor
+				end
 			end
 		end
 	end
@@ -248,7 +356,7 @@ local function getClosestGrapplePoint()
 end
 
 local function startGrapple()
-	if isFinished or isGrappling or not rootPart or not nearestAnchor then return end
+	if isMenuMode or isFinished or isGrappling or not rootPart or not nearestAnchor then return end
 	isGrappling = true
 	currentAnchor = nearestAnchor
 	
@@ -309,7 +417,7 @@ local function startGrapple()
 end
 
 local function releaseGrapple()
-	if not isGrappling then return end
+	if isMenuMode or not isGrappling then return end
 	isGrappling = false
 	
 	if currentAnchor and currentAnchor:IsA("BasePart") then
@@ -338,7 +446,7 @@ local function releaseGrapple()
 end
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed or isFinished then return end
+	if gameProcessed or isMenuMode or isFinished then return end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 
 		or input.UserInputType == Enum.UserInputType.Touch
 		or input.KeyCode == Enum.KeyCode.Space
@@ -348,7 +456,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-	if isFinished then return end
+	if isMenuMode or isFinished then return end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 
 		or input.UserInputType == Enum.UserInputType.Touch
 		or input.KeyCode == Enum.KeyCode.Space
@@ -365,19 +473,13 @@ local function onCharacterAdded(newChar)
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
 	
-	local filterList = {character}
-	for _, anchor in ipairs(CollectionService:GetTagged("GrappleAnchor")) do
-		if not anchor:IsDescendantOf(game.Workspace) then continue end
-		table.insert(filterList, anchor)
-	end
-	local map = workspace:FindFirstChild("Map")
-	local lines = map and map:FindFirstChild("Lines")
-	if lines then
-		table.insert(filterList, lines)
-	end
-	raycastParams.FilterDescendantsInstances = filterList
+	updateRaycastFilter()
 	
-	respawnAtStart()
+	if isMenuMode then
+		setupMenuVisuals()
+	else
+		respawnAtStart()
+	end
 	
 	humanoid.Died:Connect(function()
 		if isGrappling then
@@ -396,10 +498,29 @@ create3DSelectionRing()
 RunService.Heartbeat:Connect(function(dt)
 	if not rootPart then return end
 	
+	if isMenuMode then
+		setSelectionRingVisible(false)
+		local anchor = getMainScreenAnchor()
+		if anchor then
+			menuTime = menuTime + dt
+			local theta = 0.5 * math.sin(menuTime * 1.8)
+			local ropeL = 12.0
+			local targetX = anchor.Position.X + ropeL * math.sin(theta)
+			local targetY = anchor.Position.Y - ropeL * math.cos(theta)
+			local targetZ = anchor.Position.Z
+			
+			local newPos = Vector3.new(targetX, targetY, targetZ)
+			local tiltAngle = theta * 0.85
+			rootPart.CFrame = CFrame.new(newPos) * CFrame.Angles(0, math.rad(180), 0) * CFrame.Angles(0, 0, -tiltAngle)
+			rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+		end
+		return
+	end
+	
 	local deadBelowY, deadAboveY, finishThresholdX = getLevelLines()
 	
 	if not isFinished then
-		if rootPart.Position.Y < deadBelowY or rootPart.Position.Y > deadAboveY then
+		if rootPart.Position.Y < (deadBelowY - 15) or rootPart.Position.Y > (deadAboveY + 15) then
 			respawnAtStart()
 			return
 		end
@@ -473,7 +594,7 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 	
 	-- Update 3D Selection Ring
-	if not isFinished then
+	if not isFinished and not isMenuMode then
 		nearestAnchor = getClosestGrapplePoint()
 		if nearestAnchor and nearestAnchor:IsA("BasePart") and selectionRingRoot then
 			if isGrappling and nearestAnchor == currentAnchor then
@@ -488,5 +609,18 @@ RunService.Heartbeat:Connect(function(dt)
 		end
 	else
 		setSelectionRingVisible(false)
+	end
+end)
+
+task.spawn(function()
+	local mapFolder = workspace:WaitForChild("Map", 10)
+	if mapFolder then
+		mapFolder.ChildAdded:Connect(function()
+			task.wait()
+			updateRaycastFilter()
+			if not isMenuMode then
+				resetAllAnchorsToDefault()
+			end
+		end)
 	end
 end)
