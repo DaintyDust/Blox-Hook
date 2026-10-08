@@ -7,12 +7,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
 
 local player = Players.LocalPlayer
+
 local PhysicsConfig = require(ReplicatedStorage:WaitForChild("PhysicsConfig"))
+local Events = ReplicatedStorage:WaitForChild("Events")
 
 local character = nil
 local rootPart = nil
 local humanoid = nil
 
+local isFinished = false
 local isGrappling = false
 local currentAnchor = nil
 local ropeLength = 0
@@ -34,11 +37,31 @@ local raycastParams = RaycastParams.new()
 raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 raycastParams.IgnoreWater = true
 
+local LevelFinishedEvent = Events:WaitForChild("LevelFinishedEvent")
+
+local function getLevelLines()
+	local map = workspace:FindFirstChild("Map")
+	local lines = map and map:FindFirstChild("Lines")
+	local deadBelowY = -88
+	local deadAboveY = 252
+	local finishX = 351.25
+	
+	if lines then
+		local db = lines:FindFirstChild("DeadBelow")
+		local da = lines:FindFirstChild("DeadAbove")
+		local fin = lines:FindFirstChild("Finish")
+		if db and db:IsA("BasePart") then deadBelowY = db.Position.Y end
+		if da and da:IsA("BasePart") then deadAboveY = da.Position.Y end
+		if fin and fin:IsA("BasePart") then finishX = fin.Position.X end
+	end
+	return deadBelowY, deadAboveY, finishX
+end
+
 local function create3DSelectionRing()
 	if selectionRingModel then selectionRingModel:Destroy() end
 	
 	local model = Instance.new("Model")
-	model.Name = "StickmanSelectionRing"
+	model.Name = "SelectionRing"
 	
 	local root = Instance.new("Part")
 	root.Name = "RingRoot"
@@ -122,6 +145,7 @@ end
 
 local function resetAllAnchorsToDefault()
 	for _, anchor in ipairs(CollectionService:GetTagged("GrappleAnchor")) do
+		if not anchor:IsDescendantOf(game.Workspace) then continue end
 		setAnchorActive(anchor, false)
 	end
 	for _, obj in ipairs(workspace:GetDescendants()) do
@@ -132,8 +156,78 @@ local function resetAllAnchorsToDefault()
 	end
 end
 
+local function respawnAtStart()
+	if not rootPart then return end
+	if isGrappling then
+		if currentAnchor then
+			setAnchorActive(currentAnchor, false)
+		end
+		if activeBeam then activeBeam:Destroy() activeBeam = nil end
+		isGrappling = false
+		currentAnchor = nil
+	end
+
+	setSelectionRingVisible(false)
+
+	local spawnLoc = workspace:FindFirstChildOfClass("SpawnLocation")
+	local spawnX = spawnLoc and spawnLoc.Position.X or -16
+	local spawnY = spawnLoc and spawnLoc.Position.Y or 2
+	local targetPos = Vector3.new(spawnX, spawnY + 14, PhysicsConfig.Z_LOCK_PLANE or 0)
+
+	angularVelocity = 0
+	swingAngle = 0
+	rootPart.CFrame = CFrame.new(targetPos)
+	rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+	rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+end
+
+local ForceRespawnEvent = Events:WaitForChild("ForceRespawnEvent", 10)
+if ForceRespawnEvent and ForceRespawnEvent:IsA("RemoteEvent") then
+	ForceRespawnEvent.OnClientEvent:Connect(function()
+		respawnAtStart()
+	end)
+end
+
+local function triggerFinishSequence()
+	if isFinished then return end
+	isFinished = true
+	
+	setSelectionRingVisible(false)
+	
+	if isGrappling then
+		if currentAnchor then
+			setAnchorActive(currentAnchor, false)
+		end
+		if activeBeam then activeBeam:Destroy() activeBeam = nil end
+		isGrappling = false
+		currentAnchor = nil
+	end
+	
+	local sound = Instance.new("Sound")
+	sound.SoundId = "rbxasset://sounds/action_jump.mp3"
+	sound.Volume = 0.9
+	sound.PlaybackSpeed = 0.8
+	sound.Parent = rootPart
+	sound:Play()
+	Debris:AddItem(sound, 3)
+	
+	if LevelFinishedEvent then
+		LevelFinishedEvent:Fire()
+	end
+	
+	task.spawn(function()
+		while isFinished do
+			task.wait(0.03)
+			if rootPart and isFinished then
+				local v = rootPart.AssemblyLinearVelocity
+				rootPart.AssemblyLinearVelocity = Vector3.new(v.X * 0.94, math.max(v.Y * 0.90, -10), 0)
+			end
+		end
+	end)
+end
+
 local function getClosestGrapplePoint()
-	if not rootPart then return nil end
+	if not rootPart or isFinished then return nil end
 	local anchors = CollectionService:GetTagged("GrappleAnchor")
 	local closestAnchor = nil
 	local minDistance = PhysicsConfig.MAX_GRAPPLE_DISTANCE or 95
@@ -141,6 +235,7 @@ local function getClosestGrapplePoint()
 	local playerPos = rootPart.Position
 	
 	for _, anchor in ipairs(anchors) do
+		if not anchor:IsDescendantOf(game.Workspace) then continue end
 		if anchor:IsA("BasePart") then
 			local dist = (anchor.Position - playerPos).Magnitude
 			if dist < minDistance then
@@ -153,7 +248,7 @@ local function getClosestGrapplePoint()
 end
 
 local function startGrapple()
-	if isGrappling or not rootPart or not nearestAnchor then return end
+	if isFinished or isGrappling or not rootPart or not nearestAnchor then return end
 	isGrappling = true
 	currentAnchor = nearestAnchor
 	
@@ -243,7 +338,7 @@ local function releaseGrapple()
 end
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
+	if gameProcessed or isFinished then return end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 
 		or input.UserInputType == Enum.UserInputType.Touch
 		or input.KeyCode == Enum.KeyCode.Space
@@ -253,6 +348,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 UserInputService.InputEnded:Connect(function(input)
+	if isFinished then return end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 
 		or input.UserInputType == Enum.UserInputType.Touch
 		or input.KeyCode == Enum.KeyCode.Space
@@ -271,9 +367,24 @@ local function onCharacterAdded(newChar)
 	
 	local filterList = {character}
 	for _, anchor in ipairs(CollectionService:GetTagged("GrappleAnchor")) do
+		if not anchor:IsDescendantOf(game.Workspace) then continue end
 		table.insert(filterList, anchor)
 	end
+	local map = workspace:FindFirstChild("Map")
+	local lines = map and map:FindFirstChild("Lines")
+	if lines then
+		table.insert(filterList, lines)
+	end
 	raycastParams.FilterDescendantsInstances = filterList
+	
+	respawnAtStart()
+	
+	humanoid.Died:Connect(function()
+		if isGrappling then
+			releaseGrapple()
+		end
+		setSelectionRingVisible(false)
+	end)
 end
 
 player.CharacterAdded:Connect(onCharacterAdded)
@@ -284,6 +395,19 @@ create3DSelectionRing()
 
 RunService.Heartbeat:Connect(function(dt)
 	if not rootPart then return end
+	
+	local deadBelowY, deadAboveY, finishThresholdX = getLevelLines()
+	
+	if not isFinished then
+		if rootPart.Position.Y < deadBelowY or rootPart.Position.Y > deadAboveY then
+			respawnAtStart()
+			return
+		end
+	end
+	
+	if not isFinished and rootPart.Position.X >= finishThresholdX then
+		triggerFinishSequence()
+	end
 	
 	if math.abs(rootPart.Position.Z - PhysicsConfig.Z_LOCK_PLANE) > 0.01 then
 		rootPart.CFrame = CFrame.new(rootPart.Position.X, rootPart.Position.Y, PhysicsConfig.Z_LOCK_PLANE) * (rootPart.CFrame - rootPart.Position)
@@ -349,14 +473,18 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 	
 	-- Update 3D Selection Ring
-	nearestAnchor = getClosestGrapplePoint()
-	if nearestAnchor and nearestAnchor:IsA("BasePart") and selectionRingRoot then
-		if isGrappling and nearestAnchor == currentAnchor then
-			setSelectionRingVisible(false)
+	if not isFinished then
+		nearestAnchor = getClosestGrapplePoint()
+		if nearestAnchor and nearestAnchor:IsA("BasePart") and selectionRingRoot then
+			if isGrappling and nearestAnchor == currentAnchor then
+				setSelectionRingVisible(false)
+			else
+				ringRotationAngle = (ringRotationAngle + dt * 1.8) % (2 * math.pi)
+				selectionRingRoot.CFrame = CFrame.new(nearestAnchor.Position.X, nearestAnchor.Position.Y, 0.45) * CFrame.Angles(0, 0, ringRotationAngle)
+				setSelectionRingVisible(true)
+			end
 		else
-			ringRotationAngle = (ringRotationAngle + dt * 1.8) % (2 * math.pi)
-			selectionRingRoot.CFrame = CFrame.new(nearestAnchor.Position.X, nearestAnchor.Position.Y, 0.45) * CFrame.Angles(0, 0, ringRotationAngle)
-			setSelectionRingVisible(true)
+			setSelectionRingVisible(false)
 		end
 	else
 		setSelectionRingVisible(false)
