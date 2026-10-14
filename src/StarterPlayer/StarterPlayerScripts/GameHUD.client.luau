@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local InputService = game:GetService("UserInputService")
 local Debris = game:GetService("Debris")
 
 local player = Players.LocalPlayer
@@ -14,6 +15,8 @@ local GameStartedEvent = Events:WaitForChild("GameStartedEvent")
 local ReturnToMenuEvent = Events:WaitForChild("ReturnToMenuEvent")
 local LevelFinishedEvent = Events:WaitForChild("LevelFinishedEvent")
 local SelectLevelEvent = Events:WaitForChild("SelectLevelEvent")
+local GetLevelEvent = Events:WaitForChild("GetLevel")
+local GamePauzedEvent = Events:WaitForChild("GamePauzedEvent")
 local LevelsFolder = ReplicatedStorage:WaitForChild("Levels")
 
 local screenGui = playerGui:WaitForChild("Main")
@@ -21,6 +24,7 @@ screenGui.Enabled = true
 
 -- 1. START MENU FRAME
 local menuFrame = screenGui:WaitForChild("StartScreen")
+menuFrame.Visible = true
 local titleContainer = menuFrame:WaitForChild("TitleContainer")
 local playBtn = menuFrame:WaitForChild("PlayButton")
 local levelsBtn = menuFrame:WaitForChild("Levels")
@@ -41,12 +45,20 @@ local barFill = progressContainer:WaitForChild("BarBackground"):WaitForChild("Ba
 
 -- 4. FINISH SCREEN FRAME
 local finishFrame = screenGui:WaitForChild("FinishScreen")
-local retryBtn = finishFrame:WaitForChild("RetryButton")
+local continueBtn = finishFrame:WaitForChild("ContinueButton")
 local menuReturnBtn = finishFrame:WaitForChild("MenuButton")
 local FinishBlur = game.Lighting:WaitForChild("FinishBlur")
 
+-- 5. PAUZE SCREEN FRAME
+local pauzeFrame = screenGui:WaitForChild("PauzeScreen")
+local pauzeLabel = pauzeFrame:WaitForChild("PauzeLabel")
+local pauzeButton = gameplayHUD:WaitForChild("PauzeButton")
+local pauzeImage = pauzeButton:WaitForChild("PauzeImage")
+local playImage = pauzeButton:WaitForChild("PlayImage")
+
 local COLOR_BTN_BLUE = Color3.fromRGB(70, 165, 255)
 local COLOR_BTN_BLUE_HOVER = Color3.fromRGB(95, 185, 255)
+local COLOR_BTN_BLUE_LOCKED = Color3.fromRGB(43, 103, 158)
 local COLOR_BTN_GREEN = Color3.fromRGB(0, 230, 125)
 local COLOR_BTN_GREEN_HOVER = Color3.fromRGB(25, 255, 145)
 
@@ -109,7 +121,16 @@ end
 
 local function updateLevelButtonHighlights()
 	for name, btn in pairs(levelButtons) do
-		if btn and btn.Parent then
+		local currentLevel = GetLevelEvent:InvokeServer()
+		local locked = btn:FindFirstChild("LevelLock")
+		local levelText = btn:FindFirstChild("LevelText")
+		local levelNumber = tonumber(string.match(name, "%d+"))
+		if levelNumber <= currentLevel then
+			locked.Visible = false
+			levelText.Visible = true
+			btn.Interactable = true
+		end
+		if btn and btn.Parent and not btn.LevelLock.Visible then
 			local isSelected = (name == selectedLevelName)
 			TweenService:Create(btn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 				BackgroundColor3 = isSelected and COLOR_BTN_GREEN or COLOR_BTN_BLUE
@@ -143,13 +164,22 @@ local function populateLevelsGrid()
 
 	for _, info in ipairs(sorted) do
 		local btn = levelBtnTemplate:Clone()
+		local locked = btn:FindFirstChild("LevelLock")
+		local levelText = btn:FindFirstChild("LevelText")
+		local currentLevel = GetLevelEvent:InvokeServer()
 		btn.Name = info.Name
 		btn.LayoutOrder = info.Number
-		btn.Text = "Level " .. tostring(info.Number)
+		levelText.Text = "Level " .. tostring(info.Number)
 		btn.BackgroundColor3 = (info.Name == selectedLevelName) and COLOR_BTN_GREEN or COLOR_BTN_BLUE
 		btn.Visible = true
 		btn.Parent = levelsGrid
 		levelButtons[info.Name] = btn
+		if info.Number > currentLevel then
+			locked.Visible = true
+			levelText.Visible = false
+			btn.BackgroundColor3 = COLOR_BTN_BLUE_LOCKED
+			btn.Interactable = false
+		end
 
 		btn.MouseEnter:Connect(function()
 			local isSelected = (selectedLevelName == info.Name)
@@ -184,7 +214,6 @@ LevelsFolder.ChildRemoved:Connect(function()
 	populateLevelsGrid()
 end)
 
--- Sync initial selected level with workspace.Map or leaderstats.Level
 task.spawn(function()
 	local mapFolder = workspace:WaitForChild("Map", 5)
 	if mapFolder then
@@ -222,6 +251,19 @@ task.spawn(function()
 		task.wait(1.2)
 		TweenService:Create(titleContainer, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
 			Position = UDim2.new(0.5, -210, 0.11, 0)
+		}):Play()
+		task.wait(1.2)
+	end
+end)
+
+task.spawn(function()
+	while pauzeFrame and pauzeFrame.Parent do
+		TweenService:Create(pauzeLabel, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+			TextSize = 52
+		}):Play()
+		task.wait(1.2)
+		TweenService:Create(pauzeLabel, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+			TextSize = 62
 		}):Play()
 		task.wait(1.2)
 	end
@@ -267,13 +309,13 @@ selectBtn.MouseLeave:Connect(function()
 	}):Play()
 end)
 
-retryBtn.MouseEnter:Connect(function()
-	TweenService:Create(retryBtn, TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+continueBtn.MouseEnter:Connect(function()
+	TweenService:Create(continueBtn, TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		BackgroundColor3 = COLOR_BTN_GREEN_HOVER
 	}):Play()
 end)
-retryBtn.MouseLeave:Connect(function()
-	TweenService:Create(retryBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+continueBtn.MouseLeave:Connect(function()
+	TweenService:Create(continueBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		BackgroundColor3 = COLOR_BTN_GREEN
 	}):Play()
 end)
@@ -285,6 +327,17 @@ menuReturnBtn.MouseEnter:Connect(function()
 end)
 menuReturnBtn.MouseLeave:Connect(function()
 	TweenService:Create(menuReturnBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		BackgroundColor3 = COLOR_BTN_BLUE
+	}):Play()
+end)
+
+pauzeButton.MouseEnter:Connect(function()
+	TweenService:Create(pauzeButton, TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		BackgroundColor3 = COLOR_BTN_BLUE_HOVER
+	}):Play()
+end)
+pauzeButton.MouseLeave:Connect(function()
+	TweenService:Create(pauzeButton, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		BackgroundColor3 = COLOR_BTN_BLUE
 	}):Play()
 end)
@@ -305,12 +358,18 @@ selectBtn.MouseButton1Click:Connect(function()
 	playClickSound()
 	SelectLevelEvent:FireServer(selectedLevelName)
 	updateHudLevelLabels()
-	levelsFrame.Visible = false
-	menuFrame.Position = UDim2.new(0, 0, -0.25, 0)
-	menuFrame.Visible = true
-	TweenService:Create(menuFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Position = UDim2.new(0, 0, 0, 0)
+	
+	TweenService:Create(levelsFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Position = UDim2.new(0, 0, -1, 0)
 	}):Play()
+	task.wait(0.3)
+
+	menuFrame.Visible = false
+	levelsFrame.Visible = false
+	finishFrame.Visible = false
+	gameplayHUD.Visible = true
+
+	GameStartedEvent:Fire()
 end)
 
 playBtn.MouseButton1Click:Connect(function()
@@ -338,6 +397,7 @@ LevelFinishedEvent.Event:Connect(function()
 	TweenService:Create(finishFrame, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		Position = UDim2.new(0, 0, 0, 0)
 	}):Play()
+	updateLevelButtonHighlights()
 	task.wait(3)
 	if finishFrame.Visible == false then return end
 	TweenService:Create(FinishBlur, TweenInfo.new(1.65, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
@@ -350,15 +410,12 @@ LevelFinishedEvent.Event:Connect(function()
 	end
 end)
 
-retryBtn.Text = "Next Level"
-
-retryBtn.MouseButton1Click:Connect(function()
+function continue()
 	if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
 		player.Character.HumanoidRootPart.Anchored = false
 	end
 	playClickSound()
 
-	-- Advance to the next level (or stay on current if it's the final level)
 	local nextInfo = getNextLevelInfo(selectedLevelName)
 	if nextInfo then
 		selectLevel(nextInfo.Name, true)
@@ -374,11 +431,21 @@ retryBtn.MouseButton1Click:Connect(function()
 		Size = 0
 	}):Play()
 
-	-- Give the server a brief moment to clone the new level into workspace.Map before respawning
 	task.wait(0.08)
 	gameplayHUD.Visible = true
 
 	GameStartedEvent:Fire()
+end
+
+continueBtn.Text = "Next Level"
+continueBtn.MouseButton1Click:Connect(continue)
+InputService.InputBegan:Connect(function(input, gameProcessedEvent)
+	if gameProcessedEvent then return end
+	if not finishFrame.Visible then return end
+	if menuFrame.Visible or levelsFrame.Visible or gameplayHUD.Visible then return end
+	if input.KeyCode == Enum.KeyCode.Space then
+		continue()
+	end
 end)
 
 menuReturnBtn.MouseButton1Click:Connect(function()
@@ -387,7 +454,6 @@ menuReturnBtn.MouseButton1Click:Connect(function()
 	end
 	playClickSound()
 
-	-- Automatically select the next level if available
 	local nextInfo = getNextLevelInfo(selectedLevelName)
 	if nextInfo then
 		selectLevel(nextInfo.Name, true)
@@ -408,6 +474,40 @@ menuReturnBtn.MouseButton1Click:Connect(function()
 	}):Play()
 
 	ReturnToMenuEvent:Fire()
+end)
+
+function Pauze(state)
+	pauzeImage.Visible = not state
+	playImage.Visible = state
+	pauzeFrame.Visible = state
+	if character then
+		for _, part in pairs(character:GetChildren()) do
+			if part:IsA("BasePart") then
+				part.Anchored = state
+			end
+		end
+	end
+	GamePauzedEvent:Fire(state)
+end
+
+pauzeButton.MouseButton1Click:Connect(function()
+	Pauze(pauzeImage.Visible)
+end)
+
+pauzeFrame.InputBegan:Connect(function(input)
+	if pauzeFrame.Visible and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+		Pauze(false)
+	end
+end)
+
+InputService.InputBegan:Connect(function(input, gameProcessedEvent)
+	if gameProcessedEvent then return end
+	if pauzeFrame.Visible then
+		if input.KeyCode == Enum.KeyCode.Space or input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			Pauze(false)
+		end
+		return
+	end
 end)
 
 local function onCharacterAdded(newChar)
@@ -443,3 +543,4 @@ RunService.RenderStepped:Connect(function()
 	local progress = math.clamp((rootPart.Position.X - startX) / math.max(1, (finishX - startX)), 0, 1)
 	barFill.Size = UDim2.new(progress, 0, 1, 0)
 end)
+
