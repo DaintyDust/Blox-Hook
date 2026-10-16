@@ -15,6 +15,14 @@ local character = nil
 local rootPart = nil
 local humanoid = nil
 
+-- Invisible Rope Grip Part & IKControls
+local ropeGripPart = nil
+local gripAttachment = nil
+local leftGripAttach = nil
+local rightGripAttach = nil
+local ikLeft = nil
+local ikRight = nil
+
 local isMenuMode = true
 local isFinished = false
 local isGrappling = false
@@ -25,7 +33,6 @@ local swingAngle = 0
 local angularVelocity = 0
 
 local activeBeam = nil
-local ropeAttachment0 = nil
 local ropeAttachment1 = nil
 local nearestAnchor = nil
 
@@ -44,6 +51,81 @@ raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 raycastParams.IgnoreWater = true
 
 local LevelFinishedEvent = Events:WaitForChild("LevelFinishedEvent")
+
+local function setIKActive(active)
+    if ikLeft then ikLeft.Enabled = active end
+    if ikRight then ikRight.Enabled = active end
+end
+
+local function updateGripPosition(playerPos, anchorPos)
+    if not ropeGripPart then return end
+    local diff = anchorPos - playerPos
+    local dir = diff.Magnitude > 0.01 and diff.Unit or Vector3.new(0, 1, 0)
+    local gripPos = playerPos + dir * 2.4
+    ropeGripPart.CFrame = CFrame.lookAt(gripPos, anchorPos)
+end
+
+local function setupRopeGripAndIK(newChar)
+    if ropeGripPart then ropeGripPart:Destroy() ropeGripPart = nil end
+    if ikLeft then ikLeft:Destroy() ikLeft = nil end
+    if ikRight then ikRight:Destroy() ikRight = nil end
+
+    ropeGripPart = Instance.new("Part")
+    ropeGripPart.Name = "RopeGripPart"
+    ropeGripPart.Size = Vector3.new(0.4, 0.4, 0.4)
+    ropeGripPart.Transparency = 1
+    ropeGripPart.Anchored = true
+    ropeGripPart.CanCollide = false
+    ropeGripPart.CanTouch = false
+    ropeGripPart.CanQuery = false
+    ropeGripPart.Massless = true
+    ropeGripPart.CFrame = rootPart.CFrame * CFrame.new(0, 2.4, 0)
+    ropeGripPart.Parent = newChar
+
+    gripAttachment = Instance.new("Attachment")
+    gripAttachment.Name = "RopeGripCenter"
+    gripAttachment.Position = Vector3.new(0, 0, 0)
+    gripAttachment.Parent = ropeGripPart
+
+    leftGripAttach = Instance.new("Attachment")
+    leftGripAttach.Name = "LeftHandGrip"
+    leftGripAttach.Position = Vector3.new(-0.15, 0, 0)
+    leftGripAttach.Parent = ropeGripPart
+
+    rightGripAttach = Instance.new("Attachment")
+    rightGripAttach.Name = "RightHandGrip"
+    rightGripAttach.Position = Vector3.new(0.15, 0, 0)
+    rightGripAttach.Parent = ropeGripPart
+
+    local leftUpperArm = newChar:WaitForChild("LeftUpperArm", 3)
+    local leftHand = newChar:WaitForChild("LeftHand", 3)
+    local rightUpperArm = newChar:WaitForChild("RightUpperArm", 3)
+    local rightHand = newChar:WaitForChild("RightHand", 3)
+
+    if leftUpperArm and leftHand and rightUpperArm and rightHand and humanoid then
+        ikLeft = Instance.new("IKControl")
+        ikLeft.Name = "LeftArmRopeIK"
+        ikLeft.Type = Enum.IKControlType.Position
+        ikLeft.ChainRoot = leftUpperArm
+        ikLeft.EndEffector = leftHand
+        ikLeft.Target = leftGripAttach
+        ikLeft.Weight = 1
+        ikLeft.SmoothTime = 0.03
+        ikLeft.Enabled = false
+        ikLeft.Parent = humanoid
+
+        ikRight = Instance.new("IKControl")
+        ikRight.Name = "RightArmRopeIK"
+        ikRight.Type = Enum.IKControlType.Position
+        ikRight.ChainRoot = rightUpperArm
+        ikRight.EndEffector = rightHand
+        ikRight.Target = rightGripAttach
+        ikRight.Weight = 1
+        ikRight.SmoothTime = 0.03
+        ikRight.Enabled = false
+        ikRight.Parent = humanoid
+    end
+end
 
 local function updateRaycastFilter()
 	local filterList = {}
@@ -213,12 +295,12 @@ local function setupMenuVisuals()
     rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
     rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
     
-    ropeAttachment0 = rootPart:FindFirstChild("PlayerRopeAttachment") or Instance.new("Attachment", rootPart)
-    ropeAttachment0.Name = "PlayerRopeAttachment"
+    updateGripPosition(startPos, anchor.Position)
+    setIKActive(true)
     
     menuBeam = Instance.new("Beam")
     menuBeam.Name = "MenuBeam"
-    menuBeam.Attachment0 = ropeAttachment0
+    menuBeam.Attachment0 = gripAttachment
     menuBeam.Attachment1 = menuAttach1
     menuBeam.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255))
     menuBeam.Width0 = PhysicsConfig.ROPE_THICKNESS or 0.22
@@ -241,6 +323,7 @@ local function respawnAtStart()
 	end
 
 	setSelectionRingVisible(false)
+	setIKActive(false)
 
 	local spawnLoc = workspace:FindFirstChildOfClass("SpawnLocation")
 	local spawnX = spawnLoc and spawnLoc.Position.X or -16
@@ -265,6 +348,7 @@ GameStartedEvent.Event:Connect(function()
     end
     
     if menuBeam then menuBeam:Destroy() menuBeam = nil end
+    setIKActive(false)
     
     if rootPart then
         local spawnLoc = workspace:FindFirstChildOfClass("SpawnLocation")
@@ -321,6 +405,7 @@ local function triggerFinishSequence()
     isFinished = true
     
     setSelectionRingVisible(false)
+    setIKActive(false)
     
     if isGrappling then
         if currentAnchor then
@@ -412,15 +497,15 @@ local function startGrapple()
         humanoid:ChangeState(Enum.HumanoidStateType.Physics)
     end
     
-    ropeAttachment0 = rootPart:FindFirstChild("PlayerRopeAttachment") or Instance.new("Attachment", rootPart)
-    ropeAttachment0.Name = "PlayerRopeAttachment"
+    updateGripPosition(playerPos, anchorPos)
+    setIKActive(true)
     
     ropeAttachment1 = currentAnchor:FindFirstChild("AnchorAttachment") or Instance.new("Attachment", currentAnchor)
     ropeAttachment1.Name = "AnchorAttachment"
     
     activeBeam = Instance.new("Beam")
     activeBeam.Name = "GrappleRopeBeam"
-    activeBeam.Attachment0 = ropeAttachment0
+    activeBeam.Attachment0 = gripAttachment
     activeBeam.Attachment1 = ropeAttachment1
     activeBeam.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255))
     activeBeam.Width0 = PhysicsConfig.ROPE_THICKNESS
@@ -442,6 +527,8 @@ end
 local function releaseGrapple()
     if isMenuMode or not isGrappling then return end
     isGrappling = false
+    
+    setIKActive(false)
     
     if currentAnchor and currentAnchor:IsA("BasePart") then
         setAnchorActive(currentAnchor, false)
@@ -496,6 +583,8 @@ local function onCharacterAdded(newChar)
     humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
     humanoid:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
     
+    setupRopeGripAndIK(newChar)
+    
     local filterList = {character}
 	for _, anchor in ipairs(CollectionService:GetTagged("GrappleAnchor")) do
 		if not anchor:IsDescendantOf(game.Workspace) then continue end
@@ -519,6 +608,7 @@ local function onCharacterAdded(newChar)
             releaseGrapple()
         end
         setSelectionRingVisible(false)
+        setIKActive(false)
     end)
 end
 
@@ -546,11 +636,18 @@ RunService.Heartbeat:Connect(function(dt)
             local tiltAngle = theta * 0.85
             rootPart.CFrame = CFrame.new(newPos) * CFrame.Angles(0, math.rad(180), 0) * CFrame.Angles(0, 0, -tiltAngle)
             rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            
+            updateGripPosition(newPos, anchor.Position)
+            setIKActive(true)
         end
         return
     end
 
     if isPauzed then
+        if isGrappling and currentAnchor and currentAnchor:IsA("BasePart") then
+            updateGripPosition(rootPart.Position, currentAnchor.Position)
+            setIKActive(true)
+        end
         return
     end
     
@@ -628,6 +725,13 @@ RunService.Heartbeat:Connect(function(dt)
         local facingY = (vx < -1) and math.rad(-90) or math.rad(90)
         rootPart.CFrame = CFrame.new(finalPos) * CFrame.Angles(0, 0, ropeTilt) * CFrame.Angles(0, facingY, 0)
         rootPart.AssemblyLinearVelocity = Vector3.new(vx, vy, 0)
+        
+        updateGripPosition(finalPos, anchorPos)
+        setIKActive(true)
+    else
+        if ropeGripPart then
+            ropeGripPart.CFrame = rootPart.CFrame * CFrame.new(0, 2.4, 0)
+        end
     end
     
     -- Update 3D Selection Ring
@@ -661,4 +765,3 @@ task.spawn(function()
 		end)
 	end
 end)
-
