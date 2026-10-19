@@ -243,44 +243,198 @@ task.spawn(function()
 	end
 end)
 
+local camera = workspace.CurrentCamera
+local currentOrientationIsPortrait = nil
+
+local function updateResponsiveLayout()
+	if not screenGui or not screenGui.Parent then return end
+	local viewportSize = camera.ViewportSize
+	if viewportSize.X <= 0 or viewportSize.Y <= 0 then return end
+
+	local isPortrait = (viewportSize.Y > viewportSize.X)
+	local shortAxis = math.min(viewportSize.X, viewportSize.Y)
+	local isSmallPhone = shortAxis < 500
+
+	local strokeScale = math.clamp(shortAxis / 720, 0.45, 1.6)
+	local cornerScale = math.clamp(shortAxis / 720, 0.5, 1.5)
+
+	for _, desc in ipairs(screenGui:GetDescendants()) do
+		if desc:IsA("UIStroke") then
+			local base = desc:GetAttribute("BaseThickness")
+			if not base then
+				base = (desc.Thickness > 0) and desc.Thickness or 4
+				desc:SetAttribute("BaseThickness", base)
+			end
+			desc.Thickness = math.max(1, math.round(base * strokeScale))
+		elseif desc:IsA("UICorner") then
+			local base = desc:GetAttribute("BaseRadius")
+			if not base then
+				base = desc.CornerRadius.Offset
+				if base == 0 then base = 16 end
+				desc:SetAttribute("BaseRadius", base)
+			end
+			desc.CornerRadius = UDim.new(0, math.max(3, math.round(base * cornerScale)))
+		end
+	end
+
+	local template = script:FindFirstChild("UIComponents") and script.UIComponents:FindFirstChild("Level_1")
+	if template then
+		for _, desc in ipairs(template:GetDescendants()) do
+			if desc:IsA("UIStroke") then
+				local base = desc:GetAttribute("BaseThickness") or 3
+				desc.Thickness = math.max(1, math.round(base * strokeScale))
+			elseif desc:IsA("UICorner") then
+				local base = desc:GetAttribute("BaseRadius") or 12
+				desc.CornerRadius = UDim.new(0, math.max(3, math.round(base * cornerScale)))
+			end
+		end
+	end
+
+	local levelsContainer = levelsFrame:FindFirstChild("LevelsContainer")
+	local grid = levelsContainer and levelsContainer:FindFirstChild("Grid")
+	local gridLayout = grid and grid:FindFirstChildOfClass("UIGridLayout")
+
+	if isPortrait then
+		titleContainer.Position = UDim2.new(0.5, 0, 0.20, 0)
+		titleContainer.Size = UDim2.new(0.82, 0, 0.15, 0)
+
+		levelsBtn.Position = UDim2.new(0.5, 0, 0.73, 0)
+		levelsBtn.Size = UDim2.new(0.68, 0, 0.075, 0)
+
+		playBtn.Position = UDim2.new(0.5, 0, 0.84, 0)
+		playBtn.Size = UDim2.new(0.74, 0, 0.085, 0)
+
+		levelsTitleContainer.Position = UDim2.new(0.5, 0, 0.10, 0)
+		levelsTitleContainer.Size = UDim2.new(0.85, 0, 0.08, 0)
+
+		if levelsContainer then
+			levelsContainer.Position = UDim2.new(0.5, 0, 0.48, 0)
+			levelsContainer.Size = UDim2.new(0.92, 0, 0.62, 0)
+		end
+
+		if gridLayout then
+			gridLayout.CellSize = UDim2.new(0.21, 0, 0.16, 0)
+			gridLayout.CellPadding = UDim2.new(0.04, 0, 0.035, 0)
+		end
+
+		selectBtn.Position = UDim2.new(0.5, 0, 0.88, 0)
+		selectBtn.Size = UDim2.new(0.60, 0, 0.07, 0)
+
+		local finishTitle = finishFrame:FindFirstChild("FinishTitle")
+		if finishTitle then
+			finishTitle.Position = UDim2.new(0.5, 0, 0.22, 0)
+			finishTitle.Size = UDim2.new(0.85, 0, 0.14, 0)
+		end
+
+		continueBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+		continueBtn.Position = UDim2.new(0.5, 0, 0.64, 0)
+		continueBtn.Size = UDim2.new(0.65, 0, 0.075, 0)
+
+		menuReturnBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+		menuReturnBtn.Position = UDim2.new(0.5, 0, 0.74, 0)
+		menuReturnBtn.Size = UDim2.new(0.65, 0, 0.075, 0)
+
+		pauzeButton.Position = UDim2.new(0, 16, 0, 16)
+		pauzeButton.Size = UDim2.new(0, 42, 0, 42)
+
+		progressContainer.Position = UDim2.new(0.5, 0, 0, 16)
+		progressContainer.Size = UDim2.new(0.62, 0, 0.045, 0)
+	else
+		titleContainer.Position = UDim2.new(0.5, 0, 0.22, 0)
+		titleContainer.Size = isSmallPhone and UDim2.new(0.55, 0, 0.22, 0) or UDim2.new(0.48, 0, 0.18, 0)
+
+		levelsBtn.Position = UDim2.new(0.5, 0, 0.72, 0)
+		levelsBtn.Size = isSmallPhone and UDim2.new(0.32, 0, 0.11, 0) or UDim2.new(0.24, 0, 0.10, 0)
+
+		playBtn.Position = UDim2.new(0.5, 0, 0.85, 0)
+		playBtn.Size = isSmallPhone and UDim2.new(0.35, 0, 0.12, 0) or UDim2.new(0.26, 0, 0.11, 0)
+
+		levelsTitleContainer.Position = UDim2.new(0.5, 0, 0.10, 0)
+		levelsTitleContainer.Size = UDim2.new(0.50, 0, 0.10, 0)
+
+		if levelsContainer then
+			levelsContainer.Position = UDim2.new(0.5, 0, 0.49, 0)
+			levelsContainer.Size = isSmallPhone and UDim2.new(0.88, 0, 0.65, 0) or UDim2.new(0.78, 0, 0.60, 0)
+		end
+
+		if gridLayout then
+			gridLayout.CellSize = UDim2.new(0.098, 0, 0.28, 0)
+			gridLayout.CellPadding = UDim2.new(0.025, 0, 0.045, 0)
+		end
+
+		selectBtn.Position = UDim2.new(0.5, 0, 0.88, 0)
+		selectBtn.Size = isSmallPhone and UDim2.new(0.25, 0, 0.09, 0) or UDim2.new(0.18, 0, 0.08, 0)
+
+		local finishTitle = finishFrame:FindFirstChild("FinishTitle")
+		if finishTitle then
+			finishTitle.Position = UDim2.new(0.5, 0, 0.25, 0)
+			finishTitle.Size = UDim2.new(0.55, 0, 0.16, 0)
+		end
+
+		continueBtn.AnchorPoint = Vector2.new(1, 0.5)
+		continueBtn.Position = UDim2.new(0.5, -12, 0.68, 0)
+		continueBtn.Size = isSmallPhone and UDim2.new(0.28, 0, 0.11, 0) or UDim2.new(0.24, 0, 0.10, 0)
+
+		menuReturnBtn.AnchorPoint = Vector2.new(0, 0.5)
+		menuReturnBtn.Position = UDim2.new(0.5, 12, 0.68, 0)
+		menuReturnBtn.Size = isSmallPhone and UDim2.new(0.28, 0, 0.11, 0) or UDim2.new(0.24, 0, 0.10, 0)
+
+		pauzeButton.Position = UDim2.new(0, 16, 0, 16)
+		pauzeButton.Size = UDim2.new(0, 42, 0, 42)
+
+		progressContainer.Position = UDim2.new(0.5, 0, 0, 16)
+		progressContainer.Size = isSmallPhone and UDim2.new(0.45, 0, 0.07, 0) or UDim2.new(0.34, 0, 0.055, 0)
+	end
+
+	currentOrientationIsPortrait = isPortrait
+end
+
+updateResponsiveLayout()
+camera:GetPropertyChangedSignal("ViewportSize"):Connect(updateResponsiveLayout)
+
 task.spawn(function()
 	while menuFrame and menuFrame.Parent do
+		local isPortrait = (camera.ViewportSize.Y > camera.ViewportSize.X)
+		local baseY = isPortrait and 0.20 or 0.22
 		TweenService:Create(titleContainer, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-			Position = UDim2.new(0.5, -210, 0.135, 0)
+			Position = UDim2.new(0.5, 0, baseY + 0.02, 0)
 		}):Play()
 		task.wait(1.2)
 		TweenService:Create(titleContainer, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-			Position = UDim2.new(0.5, -210, 0.11, 0)
+			Position = UDim2.new(0.5, 0, baseY - 0.02, 0)
 		}):Play()
 		task.wait(1.2)
 	end
 end)
 
+local pauzeScale = pauzeLabel:WaitForChild("UIScale") or Instance.new("UIScale", pauzeLabel)
 task.spawn(function()
 	while pauzeFrame and pauzeFrame.Parent do
-		TweenService:Create(pauzeLabel, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-			TextSize = 52
+		TweenService:Create(pauzeScale, TweenInfo.new(0.85, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+			Scale = 0.80
 		}):Play()
-		task.wait(1.2)
-		TweenService:Create(pauzeLabel, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-			TextSize = 62
+		task.wait(0.85)
+		TweenService:Create(pauzeScale, TweenInfo.new(0.85, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+			Scale = 1.20
 		}):Play()
-		task.wait(1.2)
+		task.wait(0.85)
 	end
 end)
 
 playBtn.MouseEnter:Connect(function()
-	TweenService:Create(playBtn, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size = UDim2.new(0, 260, 0, 78),
-		Position = UDim2.new(0.5, -130, 0.809, 0),
+	TweenService:Create(playScale, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Scale = 1.08
+	}):Play()
+	TweenService:Create(playBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		BackgroundColor3 = COLOR_BTN_GREEN_HOVER
 	}):Play()
 end)
 
 playBtn.MouseLeave:Connect(function()
+	TweenService:Create(playScale, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Scale = 1.0
+	}):Play()
 	TweenService:Create(playBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Size = UDim2.new(0, 240, 0, 72),
-		Position = UDim2.new(0.5, -120, 0.819, 0),
 		BackgroundColor3 = COLOR_BTN_GREEN
 	}):Play()
 end)
@@ -543,4 +697,3 @@ RunService.RenderStepped:Connect(function()
 	local progress = math.clamp((rootPart.Position.X - startX) / math.max(1, (finishX - startX)), 0, 1)
 	barFill.Size = UDim2.new(progress, 0, 1, 0)
 end)
-
