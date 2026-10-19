@@ -702,16 +702,24 @@ RunService.Heartbeat:Connect(function(dt)
         end
         
         local finalPos = targetPos
-        if hitResult and hitResult.Instance and hitResult.Instance.CanCollide then
-            local hitNormal = hitResult.Normal
-            finalPos = hitResult.Position + (hitNormal * characterRadius)
+        local hitNormal = hitResult and Vector3.new(hitResult.Normal.X, hitResult.Normal.Y, 0)
+        local swingDir = Vector3.new(math.cos(nextAngle), math.sin(nextAngle), 0) * math.sign(angularVelocity)
+        if hitResult and hitResult.Instance and hitResult.Instance.CanCollide and hitNormal.Magnitude > 0.001 and swingDir:Dot(hitNormal) < 0 then
+            hitNormal = hitNormal.Unit
+            finalPos = hitResult.Position + (hitNormal * (characterRadius + 0.1))
             finalPos = Vector3.new(finalPos.X, finalPos.Y, PhysicsConfig.Z_LOCK_PLANE)
-            
-            angularVelocity = -angularVelocity * 0.75
             
             local contactRel = finalPos - anchorPos
             ropeLength = math.clamp(contactRel.Magnitude, 5, PhysicsConfig.MAX_GRAPPLE_DISTANCE or 95)
             swingAngle = math.atan2(contactRel.X, -contactRel.Y)
+            
+            local tangent = Vector3.new(math.cos(swingAngle), math.sin(swingAngle), 0)
+            local awayDir = (tangent:Dot(hitNormal) >= 0) and 1 or -1
+            local isBouncePad = CollectionService:HasTag(hitResult.Instance, "BouncePad")
+            local restitution = isBouncePad and (PhysicsConfig.SWING_PAD_RESTITUTION or 1.1) or (PhysicsConfig.SWING_WALL_RESTITUTION or 0.6)
+            local minSpeed = isBouncePad and (PhysicsConfig.SWING_PAD_MIN_BOUNCE_SPEED or 55) or (PhysicsConfig.SWING_WALL_MIN_BOUNCE_SPEED or 22)
+            local bounceSpeed = math.max(math.abs(angularVelocity) * ropeLength * restitution, minSpeed)
+            angularVelocity = awayDir * bounceSpeed / ropeLength
         else
             swingAngle = nextAngle
         end
