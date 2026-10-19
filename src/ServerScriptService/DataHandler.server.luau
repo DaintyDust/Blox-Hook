@@ -3,10 +3,12 @@ local LevelsStore = DataStoreService:GetDataStore("Levels")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local ServerStorage = game:GetService("ServerStorage")
 
 local Events = ReplicatedStorage:WaitForChild("Events")
 local ForceRespawnEvent = Events:WaitForChild("ForceRespawnEvent")
 local GetLevelEvent = Events:WaitForChild("GetLevel")
+local PlayerVoidedEvent = ServerStorage:WaitForChild("PlayerVoidedEvent")
 
 local DEFAULT_DATA = {
 	Level = 1,
@@ -28,21 +30,14 @@ local function getSpawnPosition()
 	return Vector3.new(-16, 16, 0)
 end
 
-local function getBoundaryLines()
+local function getFinishX()
 	local map = workspace:FindFirstChild("Map")
 	local lines = map and map:FindFirstChild("Lines", true)
-	local deadBelowY = -88
-	local deadAboveY = 252
-	local finishX = 351.25
-	if lines then
-		local deadBelow = lines:FindFirstChild("DeadBelow")
-		local deadAbove = lines:FindFirstChild("DeadAbove")
-		local finish = lines:FindFirstChild("Finish")
-		if deadBelow and deadBelow:IsA("BasePart") then deadBelowY = deadBelow.Position.Y end
-		if deadAbove and deadAbove:IsA("BasePart") then deadAboveY = deadAbove.Position.Y end
-		if finish and finish:IsA("BasePart") then finishX = finish.Position.X end
+	local finish = lines and lines:FindFirstChild("Finish")
+	if finish and finish:IsA("BasePart") then
+		return finish.Position.X
 	end
-	return deadBelowY, deadAboveY, finishX
+	return 351.25
 end
 
 local function savePlayerDataAsync(player)
@@ -204,7 +199,7 @@ end
 
 RunService.Heartbeat:Connect(function(dt)
 	local startPos = getSpawnPosition()
-	local deadBelowY, deadAboveY, finishX = getBoundaryLines()
+	local finishX = getFinishX()
 	local now = os.clock()
 
 	for _, player in ipairs(Players:GetPlayers()) do
@@ -243,18 +238,6 @@ RunService.Heartbeat:Connect(function(dt)
 					end
 					state.lastX = pos.X
 
-					if pos.X < finishX and (pos.Y < deadBelowY or pos.Y > deadAboveY) then
-						addDeath(player)
-						root.CFrame = CFrame.new(startPos)
-						root.AssemblyLinearVelocity = Vector3.zero
-						root.AssemblyAngularVelocity = Vector3.zero
-						state.lastX = startPos.X
-						if ForceRespawnEvent and ForceRespawnEvent:IsA("RemoteEvent") then
-							ForceRespawnEvent:FireClient(player)
-						end
-						continue
-					end
-
 					if state.inActiveRun and pos.X >= finishX then
 						local runDuration = now - state.runStartTime
 						if runDuration >= MIN_WIN_TIME then
@@ -287,6 +270,13 @@ for _, player in ipairs(Players:GetPlayers()) do
 end
 Players.PlayerAdded:Connect(loadData)
 Players.PlayerRemoving:Connect(saveData)
+PlayerVoidedEvent.Event:Connect(function(player)
+	local state = playerStates[player]
+	if state then
+		state.lastX = getSpawnPosition().X
+	end
+	addDeath(player)
+end)
 GetLevelEvent.OnServerInvoke = function(player)
 	return getLevel(player)
 end
