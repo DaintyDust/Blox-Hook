@@ -120,8 +120,8 @@ local function updateHudLevelLabels()
 end
 
 local function updateLevelButtonHighlights()
+	local currentLevel = GetLevelEvent:InvokeServer() or 1
 	for name, btn in pairs(levelButtons) do
-		local currentLevel = GetLevelEvent:InvokeServer()
 		local locked = btn:FindFirstChild("LevelLock")
 		local levelText = btn:FindFirstChild("LevelText")
 		local levelNumber = tonumber(string.match(name, "%d+"))
@@ -142,11 +142,11 @@ end
 local function selectLevel(levelName, notifyServer)
 	if not levelName then return end
 	selectedLevelName = levelName
-	updateLevelButtonHighlights()
-	updateHudLevelLabels()
 	if notifyServer then
 		SelectLevelEvent:FireServer(selectedLevelName)
 	end
+	updateLevelButtonHighlights()
+	updateHudLevelLabels()
 end
 
 local function populateLevelsGrid()
@@ -162,11 +162,11 @@ local function populateLevelsGrid()
 		selectedLevelName = sorted[1].Name
 	end
 
+	local currentLevel = GetLevelEvent:InvokeServer() or 1
 	for _, info in ipairs(sorted) do
 		local btn = levelBtnTemplate:Clone()
 		local locked = btn:FindFirstChild("LevelLock")
 		local levelText = btn:FindFirstChild("LevelText")
-		local currentLevel = GetLevelEvent:InvokeServer()
 		btn.Name = info.Name
 		btn.LayoutOrder = info.Number
 		levelText.Text = "Level " .. tostring(info.Number)
@@ -189,6 +189,7 @@ local function populateLevelsGrid()
 		end)
 
 		btn.MouseLeave:Connect(function()
+			if not btn:IsDescendantOf(playerGui) then return end
 			local isSelected = (selectedLevelName == info.Name)
 			TweenService:Create(btn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 				BackgroundColor3 = isSelected and COLOR_BTN_GREEN or COLOR_BTN_BLUE
@@ -213,6 +214,8 @@ LevelsFolder.ChildRemoved:Connect(function()
 	task.wait()
 	populateLevelsGrid()
 end)
+
+local playerLevelResolved = false
 
 task.spawn(function()
 	local mapFolder = workspace:WaitForChild("Map", 5)
@@ -241,7 +244,19 @@ task.spawn(function()
 		end
 		selectLevel(chosen, true)
 	end
+	playerLevelResolved = true
 end)
+
+local function waitForSelectedLevelLoaded()
+	local deadline = os.clock() + 10
+	while not playerLevelResolved and os.clock() < deadline do
+		task.wait()
+	end
+	local mapFolder = workspace:FindFirstChild("Map")
+	while mapFolder and mapFolder:GetAttribute("CurrentLevel") ~= selectedLevelName and os.clock() < deadline do
+		task.wait()
+	end
+end
 
 local camera = workspace.CurrentCamera
 local currentOrientationIsPortrait = nil
@@ -431,6 +446,7 @@ playBtn.MouseEnter:Connect(function()
 end)
 
 playBtn.MouseLeave:Connect(function()
+	if not playBtn:IsDescendantOf(playerGui) then return end
 	TweenService:Create(playScale, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		Scale = 1.0
 	}):Play()
@@ -446,6 +462,7 @@ levelsBtn.MouseEnter:Connect(function()
 end)
 
 levelsBtn.MouseLeave:Connect(function()
+	if not levelsBtn:IsDescendantOf(playerGui) then return end
 	TweenService:Create(levelsBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		BackgroundColor3 = COLOR_BTN_BLUE
 	}):Play()
@@ -458,6 +475,7 @@ selectBtn.MouseEnter:Connect(function()
 end)
 
 selectBtn.MouseLeave:Connect(function()
+	if not selectBtn:IsDescendantOf(playerGui) then return end
 	TweenService:Create(selectBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		BackgroundColor3 = COLOR_BTN_GREEN
 	}):Play()
@@ -469,6 +487,7 @@ continueBtn.MouseEnter:Connect(function()
 	}):Play()
 end)
 continueBtn.MouseLeave:Connect(function()
+	if not continueBtn:IsDescendantOf(playerGui) then return end
 	TweenService:Create(continueBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		BackgroundColor3 = COLOR_BTN_GREEN
 	}):Play()
@@ -480,6 +499,7 @@ menuReturnBtn.MouseEnter:Connect(function()
 	}):Play()
 end)
 menuReturnBtn.MouseLeave:Connect(function()
+	if not menuReturnBtn:IsDescendantOf(playerGui) then return end
 	TweenService:Create(menuReturnBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		BackgroundColor3 = COLOR_BTN_BLUE
 	}):Play()
@@ -491,6 +511,7 @@ pauzeButton.MouseEnter:Connect(function()
 	}):Play()
 end)
 pauzeButton.MouseLeave:Connect(function()
+	if not pauzeButton:IsDescendantOf(playerGui) then return end
 	TweenService:Create(pauzeButton, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		BackgroundColor3 = COLOR_BTN_BLUE
 	}):Play()
@@ -517,6 +538,7 @@ selectBtn.MouseButton1Click:Connect(function()
 		Position = UDim2.new(0, 0, -1, 0)
 	}):Play()
 	task.wait(0.3)
+	waitForSelectedLevelLoaded()
 
 	menuFrame.Visible = false
 	levelsFrame.Visible = false
@@ -528,14 +550,18 @@ end)
 
 playBtn.MouseButton1Click:Connect(function()
 	playClickSound()
-	SelectLevelEvent:FireServer(selectedLevelName)
-	updateHudLevelLabels()
-
 	TweenService:Create(menuFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		Position = UDim2.new(0, 0, -1, 0)
 	}):Play()
 
+	while not playerLevelResolved do
+		task.wait()
+	end
+	SelectLevelEvent:FireServer(selectedLevelName)
+	updateHudLevelLabels()
+
 	task.wait(0.3)
+	waitForSelectedLevelLoaded()
 	menuFrame.Visible = false
 	levelsFrame.Visible = false
 	finishFrame.Visible = false
@@ -586,6 +612,7 @@ function continue()
 	}):Play()
 
 	task.wait(0.08)
+	waitForSelectedLevelLoaded()
 	gameplayHUD.Visible = true
 
 	GameStartedEvent:Fire()

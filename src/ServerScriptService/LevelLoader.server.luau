@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
 
 local Events = ReplicatedStorage:WaitForChild("Events")
 local SelectLevelEvent = Events:WaitForChild("SelectLevelEvent")
@@ -43,6 +44,29 @@ local function getLevelNameForNumber(levelNum)
 	return chosen
 end
 
+local function addOutline(target)
+	if target:FindFirstChildOfClass("Highlight") then return end
+	local highlight = Instance.new("Highlight")
+	highlight.FillTransparency = 1
+	highlight.OutlineColor = Color3.new(0, 0, 0)
+	highlight.OutlineTransparency = 0
+	highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+	highlight.Adornee = target
+	highlight.Parent = target
+end
+
+local function addLevelHighlights(mapFolder)
+	for _, anchor in ipairs(CollectionService:GetTagged("GrappleAnchor")) do
+		if anchor:IsDescendantOf(mapFolder) then
+			addOutline(anchor)
+		end
+	end
+	local walls = mapFolder:FindFirstChild("Walls")
+	if walls and walls:IsA("Model") then
+		addOutline(walls)
+	end
+end
+
 local function loadLevelIntoMap(levelName)
 	if not levelName then return false end
 	local targetLevel = LevelsFolder:FindFirstChild(levelName)
@@ -62,11 +86,16 @@ local function loadLevelIntoMap(levelName)
 		mapFolder.Parent = workspace
 	end
 
+	if mapFolder:GetAttribute("CurrentLevel") == targetLevel.Name and #mapFolder:GetChildren() > 0 then
+		return true
+	end
+
 	mapFolder:ClearAllChildren()
 	for _, child in ipairs(targetLevel:GetChildren()) do
 		local clone = child:Clone()
 		clone.Parent = mapFolder
 	end
+	addLevelHighlights(mapFolder)
 
 	local num = getLevelNumber(targetLevel.Name)
 	mapFolder:SetAttribute("CurrentLevel", targetLevel.Name)
@@ -87,6 +116,8 @@ do
 		if #sorted > 0 then
 			loadLevelIntoMap(sorted[1].Name)
 		end
+	else
+		addLevelHighlights(mapFolder)
 	end
 end
 
