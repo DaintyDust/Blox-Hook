@@ -6,6 +6,7 @@ local Debris = game:GetService("Debris")
 
 local player = Players.LocalPlayer
 local PhysicsConfig = require(ReplicatedStorage:WaitForChild("PhysicsConfig"))
+local SoundPlayer = require(ReplicatedStorage:WaitForChild("SoundPlayer"))
 
 local character = nil
 local rootPart = nil
@@ -115,13 +116,7 @@ local function handleBouncePad(pad)
 	end)
 	Debris:AddItem(bv, 0.38)
 
-	local sound = Instance.new("Sound")
-	sound.SoundId = "rbxasset://sounds/action_jump.mp3"
-	sound.Volume = 0.95
-	sound.PlaybackSpeed = isCeilingPad and 1.3 or 1.1
-	sound.Parent = pad
-	sound:Play()
-	Debris:AddItem(sound, 1.5)
+	SoundPlayer.play("BouncePad", isCeilingPad and 1.2 or 1)
 end
 
 local function setupPad(pad)

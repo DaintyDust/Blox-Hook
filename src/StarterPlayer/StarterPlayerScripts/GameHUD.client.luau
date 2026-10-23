@@ -3,7 +3,9 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local InputService = game:GetService("UserInputService")
-local Debris = game:GetService("Debris")
+
+local SoundPlayer = require(ReplicatedStorage:WaitForChild("SoundPlayer"))
+task.spawn(SoundPlayer.preload)
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -65,13 +67,12 @@ local COLOR_BTN_GREEN_HOVER = Color3.fromRGB(25, 255, 145)
 local selectedLevelName = "Level1"
 local levelButtons = {}
 
-local function playClickSound()
-	local sound = Instance.new("Sound")
-	sound.SoundId = "rbxasset://sounds/action_jump.mp3"
-	sound.Volume = 0.8
-	sound.Parent = screenGui
-	sound:Play()
-	Debris:AddItem(sound, 1.5)
+local function playSelectSound()
+	SoundPlayer.play("MenuSelect")
+end
+
+local function playPlaySound()
+	SoundPlayer.play("MenuPlay")
 end
 
 local function getLevelNumber(name)
@@ -197,7 +198,7 @@ local function populateLevelsGrid()
 		end)
 
 		btn.MouseButton1Click:Connect(function()
-			playClickSound()
+			playSelectSound()
 			selectLevel(info.Name, true)
 		end)
 	end
@@ -519,7 +520,7 @@ end)
 
 -- BUTTON EVENTS
 levelsBtn.MouseButton1Click:Connect(function()
-	playClickSound()
+	playSelectSound()
 	updateLevelButtonHighlights()
 	menuFrame.Visible = false
 	levelsFrame.Position = UDim2.new(0, 0, -0.25, 0)
@@ -530,7 +531,7 @@ levelsBtn.MouseButton1Click:Connect(function()
 end)
 
 selectBtn.MouseButton1Click:Connect(function()
-	playClickSound()
+	playPlaySound()
 	SelectLevelEvent:FireServer(selectedLevelName)
 	updateHudLevelLabels()
 	
@@ -549,7 +550,7 @@ selectBtn.MouseButton1Click:Connect(function()
 end)
 
 playBtn.MouseButton1Click:Connect(function()
-	playClickSound()
+	playPlaySound()
 	TweenService:Create(menuFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		Position = UDim2.new(0, 0, -1, 0)
 	}):Play()
@@ -594,7 +595,7 @@ function continue()
 	if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
 		player.Character.HumanoidRootPart.Anchored = false
 	end
-	playClickSound()
+	SoundPlayer.play("NextLevel")
 
 	local nextInfo = getNextLevelInfo(selectedLevelName)
 	if nextInfo then
@@ -633,7 +634,7 @@ menuReturnBtn.MouseButton1Click:Connect(function()
 	if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
 		player.Character.HumanoidRootPart.Anchored = false
 	end
-	playClickSound()
+	playSelectSound()
 
 	local nextInfo = getNextLevelInfo(selectedLevelName)
 	if nextInfo then

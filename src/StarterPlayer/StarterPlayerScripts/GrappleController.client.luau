@@ -4,11 +4,11 @@ local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Debris = game:GetService("Debris")
 
 local player = Players.LocalPlayer
 
 local PhysicsConfig = require(ReplicatedStorage:WaitForChild("PhysicsConfig"))
+local SoundPlayer = require(ReplicatedStorage:WaitForChild("SoundPlayer"))
 local Events = ReplicatedStorage:WaitForChild("Events")
 
 local character = nil
@@ -31,6 +31,7 @@ local currentAnchor = nil
 local ropeLength = 0
 local swingAngle = 0
 local angularVelocity = 0
+local lastDeathSoundTime = 0
 
 local activeBeam = nil
 local ropeAttachment1 = nil
@@ -311,6 +312,13 @@ local function setupMenuVisuals()
     menuBeam.Parent = rootPart
 end
 
+local function playDeathSound()
+	local now = os.clock()
+	if now - lastDeathSoundTime < 0.5 then return end
+	lastDeathSoundTime = now
+	SoundPlayer.play("Death")
+end
+
 local function respawnAtStart()
 	if isMenuMode or not rootPart then return end
 	if isGrappling then
@@ -374,6 +382,9 @@ end)
 local ForceRespawnEvent = Events:WaitForChild("ForceRespawnEvent", 10)
 if ForceRespawnEvent and ForceRespawnEvent:IsA("RemoteEvent") then
     ForceRespawnEvent.OnClientEvent:Connect(function()
+        if not isMenuMode then
+            playDeathSound()
+        end
         respawnAtStart()
     end)
 end
@@ -415,15 +426,9 @@ local function triggerFinishSequence()
         isGrappling = false
         currentAnchor = nil
     end
-    
-    local sound = Instance.new("Sound")
-    sound.SoundId = "rbxasset://sounds/action_jump.mp3"
-    sound.Volume = 0.9
-    sound.PlaybackSpeed = 0.8
-    sound.Parent = rootPart
-    sound:Play()
-    Debris:AddItem(sound, 3)
-    
+
+    SoundPlayer.play("FinishLevel")
+
     if LevelFinishedEvent then
         LevelFinishedEvent:Fire()
     end
@@ -514,20 +519,17 @@ local function startGrapple()
     activeBeam.LightEmission = 0.5
     activeBeam.LightInfluence = 0
     activeBeam.Parent = rootPart
-    
-    local sound = Instance.new("Sound")
-    sound.SoundId = "rbxasset://sounds/action_jump.mp3"
-    sound.Volume = 0.65
-    sound.PlaybackSpeed = 1.45
-    sound.Parent = rootPart
-    sound:Play()
-    Debris:AddItem(sound, 1)
+
+    SoundPlayer.play("HookAttach")
 end
 
-local function releaseGrapple()
+local function releaseGrapple(silent)
     if isMenuMode or not isGrappling then return end
     isGrappling = false
-    
+    if not silent then
+        SoundPlayer.play("HookRelease")
+    end
+
     setIKActive(false)
     
     if currentAnchor and currentAnchor:IsA("BasePart") then
@@ -605,7 +607,10 @@ local function onCharacterAdded(newChar)
     
     humanoid.Died:Connect(function()
         if isGrappling then
-            releaseGrapple()
+            releaseGrapple(true)
+        end
+        if not isMenuMode then
+            playDeathSound()
         end
         setSelectionRingVisible(false)
         setIKActive(false)
@@ -655,6 +660,7 @@ RunService.Heartbeat:Connect(function(dt)
     
     if not isFinished then
         if rootPart.Position.Y < (deadBelowY - 15) or rootPart.Position.Y > (deadAboveY + 15) then
+            playDeathSound()
             respawnAtStart()
             return
         end
