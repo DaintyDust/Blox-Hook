@@ -438,6 +438,8 @@ task.spawn(function()
 	end
 end)
 
+local playScale = playBtn:FindFirstChildOfClass("UIScale") or Instance.new("UIScale", playBtn)
+
 playBtn.MouseEnter:Connect(function()
 	TweenService:Create(playScale, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		Scale = 1.08
