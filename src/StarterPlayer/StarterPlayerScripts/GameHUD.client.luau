@@ -54,6 +54,7 @@ local FinishBlur = game.Lighting:WaitForChild("FinishBlur")
 -- 5. PAUZE SCREEN FRAME
 local pauzeFrame = screenGui:WaitForChild("PauzeScreen")
 local pauzeLabel = pauzeFrame:WaitForChild("PauzeLabel")
+local pauzeMenuBtn = pauzeFrame:WaitForChild("MenuButton")
 local pauzeButton = gameplayHUD:WaitForChild("PauzeButton")
 local pauzeImage = pauzeButton:WaitForChild("PauzeImage")
 local playImage = pauzeButton:WaitForChild("PlayImage")
@@ -494,17 +495,19 @@ continueBtn.MouseLeave:Connect(function()
 	}):Play()
 end)
 
-menuReturnBtn.MouseEnter:Connect(function()
-	TweenService:Create(menuReturnBtn, TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		BackgroundColor3 = COLOR_BTN_BLUE_HOVER
-	}):Play()
-end)
-menuReturnBtn.MouseLeave:Connect(function()
-	if not menuReturnBtn:IsDescendantOf(playerGui) then return end
-	TweenService:Create(menuReturnBtn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		BackgroundColor3 = COLOR_BTN_BLUE
-	}):Play()
-end)
+for _, btn in ipairs({menuReturnBtn, pauzeMenuBtn}) do
+	btn.MouseEnter:Connect(function()
+		TweenService:Create(btn, TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			BackgroundColor3 = COLOR_BTN_BLUE_HOVER
+		}):Play()
+	end)
+	btn.MouseLeave:Connect(function()
+		if not btn:IsDescendantOf(playerGui) then return end
+		TweenService:Create(btn, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			BackgroundColor3 = COLOR_BTN_BLUE
+		}):Play()
+	end)
+end
 
 pauzeButton.MouseEnter:Connect(function()
 	TweenService:Create(pauzeButton, TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
@@ -630,16 +633,11 @@ InputService.InputBegan:Connect(function(input, gameProcessedEvent)
 	end
 end)
 
-menuReturnBtn.MouseButton1Click:Connect(function()
+local function returnToMenu()
 	if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
 		player.Character.HumanoidRootPart.Anchored = false
 	end
 	playSelectSound()
-
-	local nextInfo = getNextLevelInfo(selectedLevelName)
-	if nextInfo then
-		selectLevel(nextInfo.Name, true)
-	end
 
 	finishFrame.Visible = false
 	gameplayHUD.Visible = false
@@ -656,6 +654,14 @@ menuReturnBtn.MouseButton1Click:Connect(function()
 	}):Play()
 
 	ReturnToMenuEvent:Fire()
+end
+
+menuReturnBtn.MouseButton1Click:Connect(function()
+	local nextInfo = getNextLevelInfo(selectedLevelName)
+	if nextInfo then
+		selectLevel(nextInfo.Name, true)
+	end
+	returnToMenu()
 end)
 
 function Pauze(state)
@@ -676,7 +682,13 @@ pauzeButton.MouseButton1Click:Connect(function()
 	Pauze(pauzeImage.Visible)
 end)
 
+pauzeMenuBtn.MouseButton1Click:Connect(function()
+	Pauze(false)
+	returnToMenu()
+end)
+
 pauzeFrame.InputBegan:Connect(function(input)
+	if pauzeMenuBtn.GuiState ~= Enum.GuiState.Idle then return end
 	if pauzeFrame.Visible and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
 		Pauze(false)
 	end
@@ -685,6 +697,7 @@ end)
 InputService.InputBegan:Connect(function(input, gameProcessedEvent)
 	if gameProcessedEvent then return end
 	if pauzeFrame.Visible then
+		if pauzeMenuBtn.GuiState ~= Enum.GuiState.Idle then return end
 		if input.KeyCode == Enum.KeyCode.Space or input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			Pauze(false)
 		end
